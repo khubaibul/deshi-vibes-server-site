@@ -47,6 +47,7 @@ async function dataBase() {
     try {
         const usersCollection = client.db("deshi-vibes").collection("users");
         const productsCollection = client.db("deshi-vibes").collection("products");
+        const cartsCollection = client.db("deshi-vibes").collection("carts");
 
 
 
@@ -55,7 +56,6 @@ async function dataBase() {
             const email = req.params.email;
             const user = req.body;
             // const userEmail = user.email;
-            console.log(email);
             const filter = { email: email };
             const options = { upsert: true };
             const updatedDoc = {
@@ -89,6 +89,38 @@ async function dataBase() {
             const filter = { _id: new ObjectId(_id) };
             const result = await productsCollection.findOne(filter);
             res.send(result)
+        })
+
+
+        // Add To Cart Product
+        app.post("/add-to-cart", async (req, res) => {
+            const addToCartInfo = req.body;
+            const query = {};
+            const cartCollections = await cartsCollection.find(query).toArray();
+            const alreadyAdded = cartCollections.find(product => (product.productId === addToCartInfo.productId) && product.buyerEmail === addToCartInfo.buyerEmail);
+            if (alreadyAdded) {
+                res.send({ message: "Already in your cart" })
+            }
+            else {
+                const result = await cartsCollection.insertOne(addToCartInfo);
+                res.send(result);
+            }
+        })
+
+        // Get Cart Product By Email
+        app.get("/cart-product/:email", async (req, res) => {
+            const email = req.params.email;
+            const filter = { buyerEmail: email };
+            const cartProduct = await cartsCollection.find(filter).toArray();
+            res.send(cartProduct);
+        })
+
+        // Delete Product From Cart By ProductId
+        app.delete("/delete-cart-product/:productId", async (req, res) => {
+            const productId = req.params.productId;
+            const filter = { productId: productId };
+            const result = await cartsCollection.deleteOne(filter);
+            res.send(result);
         })
 
 
