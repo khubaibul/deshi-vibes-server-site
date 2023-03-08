@@ -46,6 +46,7 @@ function verifyJWT(req, res, next) {
 async function dataBase() {
     try {
         const usersCollection = client.db("deshi-vibes").collection("users");
+        const productsCollection = client.db("deshi-vibes").collection("products");
 
 
 
@@ -65,6 +66,33 @@ async function dataBase() {
             const token = jwt.sign(user, process.env.JWT_ACCESS_TOKEN);
             res.send({ result, token });
         })
+
+
+        // Add Product Into Database
+        app.post("/add-product", async (req, res) => {
+            const product = req.body;
+            const result = await productsCollection.insertOne(product);
+            res.send(result)
+        })
+
+        // Get All Products
+        app.get("/products", async (req, res) => {
+            const query = {};
+            const products = await productsCollection.find(query).toArray();
+            res.send(products)
+        })
+
+
+        // Get Products By ID
+        app.get("/product/:_id", async (req, res) => {
+            const _id = req.params._id;
+            const filter = { _id: new ObjectId(_id) };
+            const result = await productsCollection.findOne(filter);
+            res.send(result)
+        })
+
+
+
     }
 
     catch (err) {
