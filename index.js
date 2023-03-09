@@ -68,10 +68,36 @@ async function dataBase() {
         })
 
 
+        // Get All Customer
+        app.get("/all-customer", async (req, res) => {
+            const query = {};
+            const users = await usersCollection.find(query).toArray();
+            const customer = users?.filter(user => !user.isAdmin);
+            res.send(customer);
+        })
+
+        // Delete Customer By Email
+        app.delete("/delete-customer/:email", async (req, res) => {
+            const email = req.params.email;
+            const query = { email: email };
+            const result = usersCollection.deleteOne(query);
+            res.send(result);
+
+        })
+
+
         // Add Product Into Database
         app.post("/add-product", async (req, res) => {
             const product = req.body;
             const result = await productsCollection.insertOne(product);
+            res.send(result)
+        })
+
+        // Delete Product By Id
+        app.delete("/delete-product/:_id", async (req, res) => {
+            const _id = req.params._id;
+            const filter = { _id: new ObjectId(_id) };
+            const result = await productsCollection.deleteOne(filter);
             res.send(result)
         })
 
@@ -121,6 +147,21 @@ async function dataBase() {
             const filter = { productId: productId };
             const result = await cartsCollection.deleteOne(filter);
             res.send(result);
+        })
+
+
+        // Check IsAdmin
+        app.get("/user/admin/:email", async (req, res) => {
+            const email = req.params.email;
+
+            const query = { email: email };
+            const user = await usersCollection.findOne(query);
+            if (user?.isAdmin === "Admin") {
+                return res.send({ isAdmin: "Admin" })
+            }
+            else {
+                res.send({ isAdmin: false })
+            }
         })
 
 
