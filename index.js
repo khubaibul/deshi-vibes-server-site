@@ -4,12 +4,18 @@ const app = express();
 const port = process.env.PORT || 5000;
 require('colors');
 require('dotenv').config();
+const SSLCommerzPayment = require('sslcommerz-lts')
 const jwt = require("jsonwebtoken");
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// SSLCommerz
+const store_id = process.env.SSLCOMMERZ_STORE_ID
+const store_passwd = process.env.SSLCOMMERZ_API_KEY
+const is_live = false //true for live, false for sandbox
 
 
 // MongoDB
@@ -48,6 +54,7 @@ async function dataBase() {
         const usersCollection = client.db("deshi-vibes").collection("users");
         const productsCollection = client.db("deshi-vibes").collection("products");
         const cartsCollection = client.db("deshi-vibes").collection("carts");
+        const ordersCollection = client.db("deshi-vibes").collection("orders");
 
 
 
@@ -98,7 +105,7 @@ async function dataBase() {
             const _id = req.params._id;
             const filter = { _id: new ObjectId(_id) };
             const result = await productsCollection.deleteOne(filter);
-            res.send(result)
+            res.send(result);
         })
 
         // Get All Products
@@ -162,6 +169,140 @@ async function dataBase() {
             else {
                 res.send({ isAdmin: false })
             }
+        })
+
+
+        //sslcommerz init
+        app.post('/ssl-commerz/payments', async (req, res) => {
+
+            const orderDetails = req.body;
+            if (!orderDetails) {
+                return res.send({ error: "Please provide valid information." })
+            }
+
+            const products = orderDetails.products;
+            const buyerEmail = orderDetails.buyerEmail;
+
+
+            const ids = products?.map(product => product.productId);
+
+            const transactionId = new ObjectId().toString();
+
+            const data = {
+                total_amount: orderDetails.price,
+                currency: 'USD',
+                tran_id: transactionId, // use unique tran_id for each api call
+                success_url: `${process.env.SERVER_URL}/payment/success?transactionId=${transactionId}&buyerEmail=${buyerEmail}&ids=${ids}`,
+                fail_url: `${process.env.SERVER_URL}/payment/fail?transactionId=${transactionId}&buyerEmail=${buyerEmail}`,
+                cancel_url: `${process.env.SERVER_URL}/payment/fail?transactionId=${transactionId}&buyerEmail=${buyerEmail}`,
+                ipn_url: 'http://localhost:3030/ipn',
+                shipping_method: 'Courier',
+                product_name: 'Fashion',
+                product_category: 'Fashion',
+                product_profile: 'general',
+                cus_name: 'Customer Name',
+                cus_email: orderDetails.buyerEmail,
+                cus_add1: 'Dhaka',
+                cus_add2: 'Dhaka',
+                cus_city: 'Dhaka',
+                cus_state: 'Dhaka',
+                cus_postcode: '1000',
+                cus_country: 'Bangladesh',
+                cus_phone: '01711111111',
+                cus_fax: '01711111111',
+                ship_name: 'Customer Name',
+                ship_add1: 'Dhaka',
+                ship_add2: 'Dhaka',
+                ship_city: 'Dhaka',
+                ship_state: 'Dhaka',
+                ship_postcode: 1000,
+                ship_country: 'Bangladesh',
+            };
+            const sslcz = new SSLCommerzPayment(store_id, store_passwd, is_live)
+
+            sslcz.init(data).then(async (apiResponse) => {
+
+                let GatewayPageURL = apiResponse.GatewayPageURL;
+                ordersCollection.insertOne({
+                    buyerEmail: orderDetails.buyerEmail,
+                    ...orderDetails,
+                    transactionId,
+                    paid: false
+                })
+
+                res.send({ redirectURL: GatewayPageURL })
+            });
+        })
+
+
+        // Payment Success API
+        app.post("/payment/success", async (req, res) => {
+            const { transactionId } = req.query;
+            const { buyerEmail } = req.query;
+            const { ids } = req.query;
+
+            if (!transactionId || !buyerEmail || !ids) {
+                return res.redirect(`${process.env.CLIENT_URL}/payment/fail`)
+            }
+
+            let productIds = ids.split(",");
+
+
+
+
+            const query = { buyerEmail: buyerEmail, productId: { $in: productIds } };
+            const cartProducts = await cartsCollection.deleteMany(query);
+            console.log(cartProducts);
+            const result = await ordersCollection.updateOne({ transactionId }, { $set: { paid: true, paidAt: new Date() } });
+
+            if (result.modifiedCount > 0) {
+                res.redirect(`${process.env.CLIENT_URL}/user-profile`);
+            }
+        })
+
+        // Payment Fail API
+        app.post("/payment/fail", async (req, res) => {
+            const { transactionId, buyerEmail } = req.query;
+
+            if (!transactionId || !buyerEmail) {
+                return res.redirect(`${process.env.CLIENT_URL}/payment/fail`)
+            }
+            const query = { transactionId, buyerEmail }
+
+            const result = await ordersCollection.deleteOne(query)
+            if (result.deletedCount) {
+                res.redirect(`${process.env.CLIENT_URL}/payment/fail`)
+            }
+        })
+
+
+        // Get Specific User Order By Email
+        app.get("/my-orders/:email", async (req, res) => {
+            const email = req.params.email;
+            const query = { buyerEmail: email, paid: true }
+            const result = await ordersCollection.find(query).toArray();
+            res.send(result);
+        })
+
+
+        app.get("/all-orders", async (req, res) => {
+            const query = { paid: true };
+            const result = await ordersCollection.find(query).toArray();
+            res.send(result);
+        })
+
+        app.patch("/shipped-order/:_id", async (req, res) => {
+            const { _id } = req.body;
+            console.log(_id);
+            const result = await ordersCollection.updateOne({ _id: new ObjectId(_id) }, { $set: { status: "Shipped" } }, { upsert: true });
+            res.send(result)
+        })
+
+        app.patch("/canceled-order/:_id", async (req, res) => {
+            const { _id } = req.body;
+            console.log(_id);
+            const result = await ordersCollection.updateOne({ _id: new ObjectId(_id) }, { $set: { status: "Canceled" } }, { upsert: true });
+            res.send(result)
         })
 
 
